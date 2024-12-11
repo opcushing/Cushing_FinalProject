@@ -32,9 +32,10 @@ SynthDef(\turntable, {
 	var pitch = \pitch.kr(0.0);
 
 	var reverse = \reverse.kr(0.0);
-	var nudge_fwd, nudge_back;
+	var nudge_fwd = \nudge_fwd.kr(0.0);
+	var nudge_back = \nudge_back.kr(0.0);
 	var snap = \snap.kr(1.0);
-	var nudgeAmount = \nudgeAmount.kr(0.04);
+	var nudgeAmount = \nudgeAmount.kr(0.01);
 
 	var rate;
 
@@ -43,7 +44,9 @@ SynthDef(\turntable, {
 
 	pitch = Lag2.kr(pitch, snap);
 
-	rate = rate * (play + pitch);
+	rate = rate * (1.0 + pitch) * play;
+
+	rate = rate * (1.0 + ((nudge_fwd - nudge_back) * nudgeAmount));
 
 	reverse = Lag2.kr(reverse, 1.0);
 
@@ -69,7 +72,7 @@ Synth(\turntable, [\buff, ~yaeji.bufnum]);
 
 x.set(\play, 1.0);
 
-x.set(\pitch, 0.0);
+x.set(\pitch, 0.02);
 x.set(\snap, 1.0);
 x.set(\pitch, 0.0);
 
@@ -80,49 +83,97 @@ x.set(\reverse, 1.0);
 
 // Finalized interface below.
 (
-var mainLayout;
-var cueButtons;
-var playBack;
-var tempoDisplay;
-var pitchSlider = Slider().orientation_(\horizontal);
+~turntable_layout = {
+	arg turntable_synth;
 
-var cueButton1 = Button().string_("Cue 1");
-var cueButton2 = Button().string_("Cue 2");
-var cueButton3 = Button().string_("Cue 3");
-var cueButton4 = Button().string_("Cue 4");
+	var mainLayout;
+	// var cueButtons;
+	var playBack;
+	var tempoDisplay;
 
-w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 480.0, 240.0),
-	resizable: true
+	var playPause = Button();
+	var nudgeForward = Button().string_("nudge ⏩");
+	var nudgeBackward = Button().string_("⏪ nudge");
+
+	var pitchSlider = Slider().orientation_(\horizontal);
+
+	var pitchBendSpec;
+
+/*	var cueButton1 = Button().string_("Cue 1");
+	var cueButton2 = Button().string_("Cue 2");
+	var cueButton3 = Button().string_("Cue 3");
+	var cueButton4 = Button().string_("Cue 4");*/
+
+
+	// Define properties of the buttons
+	playPause.states = [["Play ▶️", Color.new(0.25, 0.75, 0.33), Color.white], ["Pause ⏸️", Color.white, Color.grey]];
+
+	// Define properties of the layouts
+
+	w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 400.0, 160.0),
+		resizable: true
+	)
+	.alwaysOnTop_(true)
+	.front;
+
+	// cueButtons = HLayout(cueButton1, cueButton2, cueButton3, cueButton4);
+
+	tempoDisplay = View();
+	tempoDisplay.background = \gray;
+
+	playBack = GridLayout.rows(
+		[[tempoDisplay, columns: 3], Button()],
+		[[pitchSlider, columns: 3], Knob()],
+		[nudgeBackward, Knob(), nudgeForward, playPause]
+	);
+
+	// ===== Define the Button + Slider Actions =======
+
+	pitchSlider.value_(0.5);
+	pitchBendSpec = ControlSpec.new(-0.08, 0.08);
+	pitchSlider.action_({
+		|v|
+		pitchBendSpec.map(v.value).postln;
+		turntable_synth.set(\pitch, pitchBendSpec.map(v.value));
+	});
+
+	playPause.action_({
+		|v|
+		v.value.postln;
+		turntable_synth.set(\play, v.value);
+	});
+
+	nudgeForward.mouseDownAction_({
+		turntable_synth.set(\nudge_fwd, 1.0);
+	});
+
+	nudgeForward.mouseUpAction_({
+		turntable_synth.set(\nudge_fwd, 0.0);
+	});
+
+	nudgeBackward.mouseDownAction_({
+		turntable_synth.set(\nudge_back, 1.0);
+	});
+
+	nudgeBackward.mouseUpAction_({
+		turntable_synth.set(\nudge_back, 0.0);
+	});
+
+	// Finish the layout
+	mainLayout = VLayout(playBack);
+	w.layout_(mainLayout);
+}
+);
+
+(
+x = Synth(\turntable, [\buff, ~dauwd.bufnum]);
+~turntable_layout.value(x);
 )
-.alwaysOnTop_(true)
-.front;
 
-cueButtons = HLayout(cueButton1, cueButton2, cueButton3, cueButton4);
-
-tempoDisplay = View();
-tempoDisplay.background = \gray;
-
-pitchSlider.value_(0.5);
-
-playBack = GridLayout.rows(
-	[[tempoDisplay, columns: 3], Button()],
-	[[pitchSlider, columns: 3], Knob()],
-	[Button(), Knob(), Button(), Button()]
-);
-
-
-
-
-// ===== Define the Button + Slider Actions =======
-
-pitchSlider.action();
-
-// Finish the layout
-
-mainLayout = VLayout(cueButtons, playBack);
-w.layout_(mainLayout);
-);
-
+(
+y = Synth(\turntable, [\buff, ~isola.bufnum]);
+~turntable_layout.value(y);
+)
 
 
 
