@@ -13,7 +13,7 @@ There's pitch control, slider control, and somethin else?
 
 */
 (
-~dauwd = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("dauwd.mp3")).fullPath, bufnum: 0);
+~dauwd = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("dauwd2.mp3")).fullPath, bufnum: 0);
 ~yaeji = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("yaeji.mp3")).fullPath, bufnum: 2);
 ~isola = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("isola.mp3")).fullPath, bufnum: 4);
 )
@@ -71,10 +71,13 @@ SynthDef(\turntable, {
 	#trackb, trackh, trackq, tempo = BeatTrack.kr(fft, 0.0);
 	tempo = tempo * 60;
 	beep = SinOsc.ar(1000, 0.0, Decay.kr(trackb, 0.1)) * play * (60 < tempo.value * tempo.value < 180);
-
+	/*
 	(60 < tempo.value * tempo.value < 180).poll;
-	(tempo).poll;
+	(tempo).poll;*/
 	// sig = sig + beep;
+
+	// Avoid DC offset + clicking on pause/play
+	sig = sig * Lag.kr(play, 0.001);
 
 	Out.ar(0, sig);
 }).add;
@@ -105,25 +108,22 @@ y.set(\play, 1.0);
 	arg turntable_synth;
 
 	var mainLayout;
+	var nudgeLayout;
 	// var cueButtons;
 	var playBack;
 	var tempoDisplay;
 
 	var snapKnob = Knob();
+	var nudgeAmountKnob = Knob();
+	var nudgeAmountText = StaticText();
 
 	var playPause = Button();
 	var nudgeForward = Button().string_("nudge ⏩");
 	var nudgeBackward = Button().string_("⏪ nudge");
 
-	var pitchSlider = Slider().orientation_(\horizontal);
+	var pitchSlider = Slider().orientation_(\horizontal), init_slider_val;
 
-	var pitchBendSpec;
-
-/*	var cueButton1 = Button().string_("Cue 1");
-	var cueButton2 = Button().string_("Cue 2");
-	var cueButton3 = Button().string_("Cue 3");
-	var cueButton4 = Button().string_("Cue 4");*/
-
+	var pitchBendSpec, snapKnobSpec, nudgeAmountSpec;
 
 	// Define properties of the buttons
 	playPause.states = [["Play ▶️", Color.new(0.25, 0.75, 0.33), Color.white], ["Pause ⏸️", Color.white, Color.grey]];
@@ -136,25 +136,55 @@ y.set(\play, 1.0);
 	.alwaysOnTop_(true)
 	.front;
 
-	// cueButtons = HLayout(cueButton1, cueButton2, cueButton3, cueButton4);
+	nudgeAmountText.font_(Font("Monaco"));
 
 	tempoDisplay = View();
 	tempoDisplay.background = \gray;
 
+	nudgeLayout = HLayout(nudgeAmountKnob, VLayout(StaticText().string_("amount: "), nudgeAmountText)).setAlignment(1, \center);
+
 	playBack = GridLayout.rows(
 		[[tempoDisplay, columns: 3], Button()],
 		[[pitchSlider, columns: 3], snapKnob],
-		[nudgeBackward, Knob(), nudgeForward, playPause]
+		[nudgeBackward, nudgeLayout, nudgeForward, playPause]
 	);
 
 	// ===== Define the Button + Slider Actions =======
 
-	pitchSlider.value_(0.5);
 	pitchBendSpec = ControlSpec.new(-0.08, 0.08);
-	pitchSlider.action_({
+	snapKnobSpec = ControlSpec.new(0.1, 5.0, \exp);
+	nudgeAmountSpec = ControlSpec.new(0.005, 0.08, \exp);
+
+	pitchSlider.value_(0.5);
+	pitchSlider.action_({ arg v; var pitch
 		|v|
 		pitchBendSpec.map(v.value).postln;
 		turntable_synth.set(\pitch, pitchBendSpec.map(v.value));
+	});
+
+	// TODO: unmap the value to set initial position.
+	turntable_synth.get(\snap, { arg val; {snapKnob.value_(snapKnobSpec.unmap(val))}.defer; });
+	snapKnob.action_({
+		|v|
+		snapKnobSpec.map(v.value).postln;
+		turntable_synth.set(\snap, snapKnobSpec.map(v.value));
+	});
+
+	// TODO: unmap the value to set initial position.\ctrl1, { | val | ~x = val }
+	turntable_synth.get(\nudgeAmount, { arg val; var nudgeAmount;
+		{
+			nudgeAmount = nudgeAmountSpec.unmap(val);
+			nudgeAmountKnob.value_(nudgeAmount);
+			nudgeAmountText.string_((val * 100).trunc(0.01) + "%");
+		}.defer;
+	});
+
+	nudgeAmountKnob.action_({
+		|v|
+		var nudgeAmount = nudgeAmountSpec.map(v.value);
+		nudgeAmount.postln;
+		turntable_synth.set(\nudgeAmount, nudgeAmountSpec.map(v.value));
+		nudgeAmountText.string_(((nudgeAmount * 100).trunc(0.01).asString().padRight(4, "0")) + "%");
 	});
 
 	playPause.action_({
@@ -175,6 +205,15 @@ y.set(\play, 1.0);
 
 	nudgeBackward.mouseUpAction_({
 		turntable_synth.set(\nudge_back, 0.0);
+	});
+
+	// Close the window if the synth dies
+	turntable_synth.onFree({
+		w.close;
+	});
+
+	w.onClose({
+		turntable_synth.free;
 	});
 
 	// Finish the layout
