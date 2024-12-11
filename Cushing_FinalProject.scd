@@ -26,7 +26,7 @@ There's pitch control, slider control, and somethin else?
 
 (
 SynthDef(\turntable, {
-	var sig, buff = \buff.ir(0);
+	var sig, sig_mono, buff = \buff.ir(0);
 
 	var play = \play.kr(0.0);
 	var pitch = \pitch.kr(0.0);
@@ -37,9 +37,13 @@ SynthDef(\turntable, {
 	var snap = \snap.kr(1.0);
 	var nudgeAmount = \nudgeAmount.kr(0.01);
 
+	var fft;
+	var trackb, trackh, trackq, tempo = 0;
+	var beep;
+
 	var rate;
 
-	// PLaybackRate calculations
+	// ====== PlaybackRate Calculations ======
 	rate = BufRateScale.ir(buff);
 
 	pitch = Lag2.kr(pitch, snap);
@@ -53,13 +57,24 @@ SynthDef(\turntable, {
 	rate = rate * (1.0 - (2.0 * reverse)); // reversing should take longer
 	// rate = Lag2.kr(rate, snap);
 
-	// Tempo / beat tracking?
 	sig = PlayBuf.ar(
 		numChannels: 2,
 		bufnum: buff,
 		rate: rate,
 		doneAction: 2
 	);
+
+	sig_mono = (sig[0] + sig[1]) / 2;
+
+	// Tempo / beat tracking?
+	fft = FFT(LocalBuf(1024), sig_mono);
+	#trackb, trackh, trackq, tempo = BeatTrack.kr(fft, 0.0);
+	tempo = tempo * 60;
+	beep = SinOsc.ar(1000, 0.0, Decay.kr(trackb, 0.1)) * play * (60 < tempo.value * tempo.value < 180);
+
+	(60 < tempo.value * tempo.value < 180).poll;
+	(tempo).poll;
+	// sig = sig + beep;
 
 	Out.ar(0, sig);
 }).add;
@@ -71,6 +86,7 @@ Synth(\turntable, [\buff, ~yaeji.bufnum]);
 
 
 x.set(\play, 1.0);
+x.set(\play, 0.0);
 
 x.set(\pitch, 0.02);
 x.set(\snap, 1.0);
@@ -79,6 +95,8 @@ x.set(\pitch, 0.0);
 x.set(\reverse, 0.0);
 x.set(\reverse, 1.0);
 
+
+y.set(\play, 1.0);
 
 
 // Finalized interface below.
@@ -90,6 +108,8 @@ x.set(\reverse, 1.0);
 	// var cueButtons;
 	var playBack;
 	var tempoDisplay;
+
+	var snapKnob = Knob();
 
 	var playPause = Button();
 	var nudgeForward = Button().string_("nudge ⏩");
@@ -123,7 +143,7 @@ x.set(\reverse, 1.0);
 
 	playBack = GridLayout.rows(
 		[[tempoDisplay, columns: 3], Button()],
-		[[pitchSlider, columns: 3], Knob()],
+		[[pitchSlider, columns: 3], snapKnob],
 		[nudgeBackward, Knob(), nudgeForward, playPause]
 	);
 
@@ -138,9 +158,7 @@ x.set(\reverse, 1.0);
 	});
 
 	playPause.action_({
-		|v|
-		v.value.postln;
-		turntable_synth.set(\play, v.value);
+		|v| turntable_synth.set(\play, v.value);
 	});
 
 	nudgeForward.mouseDownAction_({
@@ -175,7 +193,10 @@ y = Synth(\turntable, [\buff, ~isola.bufnum]);
 ~turntable_layout.value(y);
 )
 
-
+(
+z = Synth(\turntable, [\buff, ~yaeji.bufnum]);
+~turntable_layout.value(z);
+)
 
 
 
