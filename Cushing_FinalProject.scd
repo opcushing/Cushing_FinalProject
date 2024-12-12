@@ -16,6 +16,8 @@ s.boot;
 SynthDef(\turntable, {
 	var sig, sig_mono, buff = \buff.ir(0);
 
+	var amp = \amp.kr(1.0);
+
 	var low_sig, mid_sig, high_sig;
 
 	var play = \play.kr(0.0);
@@ -51,7 +53,7 @@ SynthDef(\turntable, {
 		numChannels: 2,
 		bufnum: buff,
 		rate: rate,
-		doneAction: 2
+		doneAction: 0
 	);
 
 	// ======= Tempo / Beat Tracking =======
@@ -75,6 +77,8 @@ SynthDef(\turntable, {
 	low_sig = BLowPass4.ar(sig, low_mid_freq) * low_db.dbamp;
 
 	sig = high_sig + mid_sig + low_sig;
+
+	sig = sig * amp;
 
 	// sig = BHiShelf.ar(sig, db: high_db);
 /*	sig = BPeakEQ.ar(sig, db: mid_db);
@@ -117,6 +121,8 @@ y.set(\play, 1.0);
 	var playBackLayout;
 	var tempoDisplay;
 
+	var amplitude = Knob();
+
 	var snapKnob = Knob();
 	var snapText = StaticText();
 	var nudgeAmountKnob = Knob();
@@ -125,6 +131,7 @@ y.set(\play, 1.0);
 	var playPause = Button();
 	var nudgeForward = Button().string_("nudge ⏩");
 	var nudgeBackward = Button().string_("⏪ nudge");
+	var reverse = Button();
 
 	var pitchReset = Button().string_("0").maxWidth_(30);
 	var pitchSlider = Slider().orientation_(\horizontal), init_slider_val;
@@ -138,6 +145,8 @@ y.set(\play, 1.0);
 
 	// Define properties of the buttons
 	playPause.states = [["Play ▶️", Color.new(0.25, 0.75, 0.33), Color.white], ["Pause ⏸️", Color.white, Color.grey]];
+
+	reverse.states = [["◀︎ reverse", Color.black, Color.white], ["reverse ▶️", Color.white, Color.grey]];
 
 	// Define properties of the layouts
 
@@ -164,8 +173,8 @@ y.set(\play, 1.0);
 	snapText.font_(Font("Monaco"));
 
 	playBackLayout = GridLayout.rows(
-		[[tempoDisplay, columns: 3], Knob()],
-		[[pitchSliderMarkings, columns: 3], Button()],
+		[[tempoDisplay, columns: 3], amplitude],
+		[[pitchSliderMarkings, columns: 3], reverse],
 		[[pitchSlider, columns: 3], snapLayout],
 		[nudgeBackward, nudgeLayout, nudgeForward, playPause]
 	);
@@ -178,6 +187,11 @@ y.set(\play, 1.0);
 	snapKnobSpec = ControlSpec.new(0.1, 5.0, \exp);
 	nudgeAmountSpec = ControlSpec.new(0.005, 0.08, \exp);
 	eqSpec = ControlSpec.specs[\db];
+
+	amplitude.value_(1.0);
+	amplitude.action_({ arg v;
+		turntable_synth.set(\amp, v.value);
+	});
 
 	pitchSlider.value_(0.5);
 	pitchSlider.action_({ arg v; var pitch;
@@ -246,6 +260,10 @@ y.set(\play, 1.0);
 		var eqDb = eqSpec.map(v.value);
 		eqDb.postln;
 		turntable_synth.set(\eq_low, eqDb);
+	});
+
+	reverse.action_({
+		|v| turntable_synth.set(\reverse, v.value);
 	});
 
 	playPause.action_({
