@@ -1,19 +1,7 @@
 s.boot;
 
-/*
-How are we gonna do this.
-
-We wanna make a "Turntable ".
-
-Use certain level meters to gauge the sync of the mix?
-
-User loads a track and pre-sets the estimated tempo of the track.
-
-There's pitch control, slider control, and somethin else?
-
-*/
 (
-~dauwd = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("dauwd2.mp3")).fullPath, bufnum: 0);
+~dauwd = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("dauwd.mp3")).fullPath, bufnum: 0);
 ~yaeji = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("yaeji.mp3")).fullPath, bufnum: 2);
 ~isola = Buffer.read(s, (PathName("songs/".resolveRelative) +/+ PathName("isola.mp3")).fullPath, bufnum: 4);
 )
@@ -28,6 +16,8 @@ There's pitch control, slider control, and somethin else?
 SynthDef(\turntable, {
 	var sig, sig_mono, buff = \buff.ir(0);
 
+	var low_sig, mid_sig, high_sig;
+
 	var play = \play.kr(0.0);
 	var pitch = \pitch.kr(0.0);
 
@@ -36,26 +26,26 @@ SynthDef(\turntable, {
 	var nudge_back = \nudge_back.kr(0.0);
 	var snap = \snap.kr(1.0);
 	var nudgeAmount = \nudgeAmount.kr(0.01);
+	var rate;
+
+	var low_mid_freq = 70;
+	var mid_high_freq = 13000;
+	var high_db = \eq_high.kr(0.0);
+	var mid_db = \eq_mid.kr(0.0);
+	var low_db = \eq_low.kr(0.0);
 
 	var fft;
 	var trackb, trackh, trackq, tempo = 0;
 	var beep;
 
-	var rate;
-
 	// ====== PlaybackRate Calculations ======
+
 	rate = BufRateScale.ir(buff);
-
 	pitch = Lag2.kr(pitch, snap);
-
 	rate = rate * (1.0 + pitch) * play;
-
 	rate = rate * (1.0 + ((nudge_fwd - nudge_back) * nudgeAmount));
-
 	reverse = Lag2.kr(reverse, 1.0);
-
 	rate = rate * (1.0 - (2.0 * reverse)); // reversing should take longer
-	// rate = Lag2.kr(rate, snap);
 
 	sig = PlayBuf.ar(
 		numChannels: 2,
@@ -64,9 +54,9 @@ SynthDef(\turntable, {
 		doneAction: 2
 	);
 
-	sig_mono = (sig[0] + sig[1]) / 2;
+	// ======= Tempo / Beat Tracking =======
 
-	// Tempo / beat tracking?
+	sig_mono = (sig[0] + sig[1]) / 2;
 	fft = FFT(LocalBuf(1024), sig_mono);
 	#trackb, trackh, trackq, tempo = BeatTrack.kr(fft, 0.0);
 	tempo = tempo * 60;
@@ -76,9 +66,22 @@ SynthDef(\turntable, {
 	(tempo).poll;*/
 	// sig = sig + beep;
 
+	// ======= Equalizing + Volume =======
+
+	high_sig = BHiPass4.ar(sig, mid_high_freq) * high_db.dbamp;
+
+	mid_sig = BHiPass4.ar(BLowPass4.ar(sig, mid_high_freq), low_mid_freq) * mid_db.dbamp;
+
+	low_sig = BLowPass4.ar(sig, low_mid_freq) * low_db.dbamp;
+
+	sig = high_sig + mid_sig + low_sig;
+
+	// sig = BHiShelf.ar(sig, db: high_db);
+/*	sig = BPeakEQ.ar(sig, db: mid_db);
+	sig = BLowShelf.ar(sig, db: low_db);*/
+
 	// Avoid DC offset + clicking on pause/play
 	sig = sig * Lag.kr(play, 0.001);
-
 	Out.ar(0, sig);
 }).add;
 )
@@ -109,8 +112,8 @@ y.set(\play, 1.0);
 
 	var mainLayout;
 	var nudgeLayout;
-	// var cueButtons;
-	var playBack;
+	var eqLayout;
+	var playBackLayout;
 	var tempoDisplay;
 
 	var snapKnob = Knob();
@@ -123,14 +126,18 @@ y.set(\play, 1.0);
 
 	var pitchSlider = Slider().orientation_(\horizontal), init_slider_val;
 
-	var pitchBendSpec, snapKnobSpec, nudgeAmountSpec;
+	var eqHigh = Knob();
+	var eqMid = Knob();
+	var eqLow = Knob();
+
+	var pitchBendSpec, snapKnobSpec, nudgeAmountSpec, eqSpec;
 
 	// Define properties of the buttons
 	playPause.states = [["Play ▶️", Color.new(0.25, 0.75, 0.33), Color.white], ["Pause ⏸️", Color.white, Color.grey]];
 
 	// Define properties of the layouts
 
-	w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 400.0, 160.0),
+	w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 400.0, 190.0),
 		resizable: true
 	)
 	.alwaysOnTop_(true)
@@ -143,21 +150,23 @@ y.set(\play, 1.0);
 
 	nudgeLayout = HLayout(nudgeAmountKnob, VLayout(StaticText().string_("amount: "), nudgeAmountText)).setAlignment(1, \center);
 
-	playBack = GridLayout.rows(
+	playBackLayout = GridLayout.rows(
 		[[tempoDisplay, columns: 3], Button()],
 		[[pitchSlider, columns: 3], snapKnob],
 		[nudgeBackward, nudgeLayout, nudgeForward, playPause]
 	);
+
+	eqLayout = VLayout(StaticText().string_("EQ").align_(\center), eqHigh, eqMid, eqLow);
 
 	// ===== Define the Button + Slider Actions =======
 
 	pitchBendSpec = ControlSpec.new(-0.08, 0.08);
 	snapKnobSpec = ControlSpec.new(0.1, 5.0, \exp);
 	nudgeAmountSpec = ControlSpec.new(0.005, 0.08, \exp);
+	eqSpec = ControlSpec.specs[\db];
 
 	pitchSlider.value_(0.5);
-	pitchSlider.action_({ arg v; var pitch
-		|v|
+	pitchSlider.action_({ arg v; var pitch;
 		pitchBendSpec.map(v.value).postln;
 		turntable_synth.set(\pitch, pitchBendSpec.map(v.value));
 	});
@@ -187,6 +196,30 @@ y.set(\play, 1.0);
 		nudgeAmountText.string_(((nudgeAmount * 100).trunc(0.01).asString().padRight(4, "0")) + "%");
 	});
 
+	eqHigh.value_(1.0);
+	eqHigh.action_({
+		|v|
+		var eqDb = eqSpec.map(v.value);
+		eqDb.postln;
+		turntable_synth.set(\eq_high, eqDb);
+	});
+
+	eqMid.value_(1.0);
+	eqMid.action_({
+		|v|
+		var eqDb = eqSpec.map(v.value);
+		eqDb.postln;
+		turntable_synth.set(\eq_mid, eqDb);
+	});
+
+	eqLow.value_(1.0);
+	eqLow.action_({
+		|v|
+		var eqDb = eqSpec.map(v.value);
+		eqDb.postln;
+		turntable_synth.set(\eq_low, eqDb);
+	});
+
 	playPause.action_({
 		|v| turntable_synth.set(\play, v.value);
 	});
@@ -212,12 +245,8 @@ y.set(\play, 1.0);
 		w.close;
 	});
 
-	w.onClose({
-		turntable_synth.free;
-	});
-
 	// Finish the layout
-	mainLayout = VLayout(playBack);
+	mainLayout = HLayout(eqLayout, playBackLayout);
 	w.layout_(mainLayout);
 }
 );
