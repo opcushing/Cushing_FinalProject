@@ -112,11 +112,13 @@ y.set(\play, 1.0);
 
 	var mainLayout;
 	var nudgeLayout;
+	var snapLayout;
 	var eqLayout;
 	var playBackLayout;
 	var tempoDisplay;
 
 	var snapKnob = Knob();
+	var snapText = StaticText();
 	var nudgeAmountKnob = Knob();
 	var nudgeAmountText = StaticText();
 
@@ -124,7 +126,9 @@ y.set(\play, 1.0);
 	var nudgeForward = Button().string_("nudge ⏩");
 	var nudgeBackward = Button().string_("⏪ nudge");
 
+	var pitchReset = Button().string_("0").maxWidth_(30);
 	var pitchSlider = Slider().orientation_(\horizontal), init_slider_val;
+	var pitchSliderMarkings;
 
 	var eqHigh = Knob();
 	var eqMid = Knob();
@@ -137,22 +141,32 @@ y.set(\play, 1.0);
 
 	// Define properties of the layouts
 
-	w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 400.0, 190.0),
+	w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 440.0, 190.0),
 		resizable: true
 	)
 	.alwaysOnTop_(true)
 	.front;
 
-	nudgeAmountText.font_(Font("Monaco"));
+	pitchSliderMarkings = HLayout(
+		StaticText().string_("-8%"), View(),
+		pitchReset, View(),
+		StaticText().string_("+8%"));
+	pitchSliderMarkings.setStretch(1, 1);
+	pitchSliderMarkings.setStretch(3, 1);
 
 	tempoDisplay = View();
 	tempoDisplay.background = \gray;
 
 	nudgeLayout = HLayout(nudgeAmountKnob, VLayout(StaticText().string_("amount: "), nudgeAmountText)).setAlignment(1, \center);
+	nudgeAmountText.font_(Font("Monaco"));
+
+	snapLayout = HLayout(snapKnob, VLayout(StaticText().string_("snap"), snapText)).setAlignment(1, \center);
+	snapText.font_(Font("Monaco"));
 
 	playBackLayout = GridLayout.rows(
-		[[tempoDisplay, columns: 3], Button()],
-		[[pitchSlider, columns: 3], snapKnob],
+		[[tempoDisplay, columns: 3], Knob()],
+		[[pitchSliderMarkings, columns: 3], Button()],
+		[[pitchSlider, columns: 3], snapLayout],
 		[nudgeBackward, nudgeLayout, nudgeForward, playPause]
 	);
 
@@ -171,12 +185,26 @@ y.set(\play, 1.0);
 		turntable_synth.set(\pitch, pitchBendSpec.map(v.value));
 	});
 
+	pitchReset.action_({
+		turntable_synth.set(\pitch, 0.0);
+		pitchSlider.value_(0.5);
+	});
+
 	// TODO: unmap the value to set initial position.
-	turntable_synth.get(\snap, { arg val; {snapKnob.value_(snapKnobSpec.unmap(val))}.defer; });
+	turntable_synth.get(\snap, { arg val; var snapTime;
+		{
+			snapTime = snapKnobSpec.unmap(val);
+			snapKnob.value_(snapTime);
+			snapText.string_(snapTime.trunc(0.1) + "s");
+		}.defer;
+	});
+
 	snapKnob.action_({
 		|v|
-		snapKnobSpec.map(v.value).postln;
+		var snapTime = snapKnobSpec.map(v.value);
+		snapTime.postln;
 		turntable_synth.set(\snap, snapKnobSpec.map(v.value));
+		snapText.string_(snapTime.trunc(0.1) + "s");
 	});
 
 	// TODO: unmap the value to set initial position.\ctrl1, { | val | ~x = val }
@@ -247,6 +275,7 @@ y.set(\play, 1.0);
 
 	// Finish the layout
 	mainLayout = HLayout(eqLayout, playBackLayout);
+	mainLayout.setStretch(1, 1);
 	w.layout_(mainLayout);
 }
 );
