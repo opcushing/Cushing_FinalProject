@@ -21,13 +21,16 @@ SynthDef(\turntable, {
 	var low_sig, mid_sig, high_sig;
 
 	var play = \play.kr(0.0);
+	var playSnap = \playSnap.kr(0.0);
 	var pitch = \pitch.kr(0.0);
+	var tempo = \tempo.kr(120.0);
 
 	var reverse = \reverse.kr(0.0);
+	var reverseSnap = \reverseSnap.kr(0.0);
 	var nudge_fwd = \nudge_fwd.kr(0.0);
 	var nudge_back = \nudge_back.kr(0.0);
 	var snap = \snap.kr(1.0);
-	var nudgeAmount = \nudgeAmount.kr(0.01);
+	var nudgeAmount = \nudgeAmount.kr(0.02);
 	var rate;
 
 	var low_mid_freq = 70;
@@ -36,17 +39,22 @@ SynthDef(\turntable, {
 	var mid_db = \eq_mid.kr(0.0);
 	var low_db = \eq_low.kr(0.0);
 
-	var fft;
+	var positionOut;
+
+	var clickout;
+
+/*	var fft;
 	var trackb, trackh, trackq, tempo = 0;
-	var beep;
+	var beep;*/
 
 	// ====== PlaybackRate Calculations ======
 
 	rate = BufRateScale.ir(buff);
 	pitch = Lag2.kr(pitch, snap);
+	play = Lag2.kr(play, snap * playSnap);
 	rate = rate * (1.0 + pitch) * play;
 	rate = rate * (1.0 + ((nudge_fwd - nudge_back) * nudgeAmount));
-	reverse = Lag2.kr(reverse, 1.0);
+	reverse = Lag2.kr(reverse, snap * reverseSnap);
 	rate = rate * (1.0 - (2.0 * reverse)); // reversing should take longer
 
 	sig = PlayBuf.ar(
@@ -57,35 +65,31 @@ SynthDef(\turntable, {
 	);
 
 	// ======= Tempo / Beat Tracking =======
-
+/*
 	sig_mono = (sig[0] + sig[1]) / 2;
 	fft = FFT(LocalBuf(1024), sig_mono);
-	#trackb, trackh, trackq, tempo = BeatTrack.kr(fft, 0.0);
+	#trackb, trackh, trackq, tempo = BeatTrack.kr(fft, 0.0);*/
 	tempo = tempo * 60;
-	beep = SinOsc.ar(1000, 0.0, Decay.kr(trackb, 0.1)) * play * (60 < tempo.value * tempo.value < 180);
+/*	beep = SinOsc.ar(1000, 0.0, Decay.kr(trackb, 0.1)) * play * (60 < tempo.value * tempo.value < 180);*/
 	/*
 	(60 < tempo.value * tempo.value < 180).poll;
 	(tempo).poll;*/
 	// sig = sig + beep;
+	//
+	// s.newBusAllocators;
+	// clickout = Bus.control(s, 1);
+	// Out.kr(clickout, trackb);
 
 	// ======= Equalizing + Volume =======
 
 	high_sig = BHiPass4.ar(sig, mid_high_freq) * high_db.dbamp;
-
 	mid_sig = BHiPass4.ar(BLowPass4.ar(sig, mid_high_freq), low_mid_freq) * mid_db.dbamp;
-
 	low_sig = BLowPass4.ar(sig, low_mid_freq) * low_db.dbamp;
-
 	sig = high_sig + mid_sig + low_sig;
 
 	sig = sig * amp;
-
-	// sig = BHiShelf.ar(sig, db: high_db);
-/*	sig = BPeakEQ.ar(sig, db: mid_db);
-	sig = BLowShelf.ar(sig, db: low_db);*/
-
 	// Avoid DC offset + clicking on pause/play
-	sig = sig * Lag.kr(play, 0.001);
+	sig = sig * Lag.kr(play, min(snap, 0.0001));
 	Out.ar(0, sig);
 }).add;
 )
@@ -112,7 +116,7 @@ y.set(\play, 1.0);
 // Finalized interface below.
 (
 ~turntable_layout = {
-	arg turntable_synth;
+	arg turntable_synth, tempo = 0;
 
 	var mainLayout;
 	var nudgeLayout;
@@ -120,6 +124,8 @@ y.set(\play, 1.0);
 	var eqLayout;
 	var playBackLayout;
 	var tempoDisplay;
+	var reverseLayout;
+	var playLayout;
 
 	var amplitude = Knob();
 
@@ -128,10 +134,14 @@ y.set(\play, 1.0);
 	var nudgeAmountKnob = Knob();
 	var nudgeAmountText = StaticText();
 
+	var tempoText = StaticText().stringColor_(Color.white).font_(Font("Monaco"));
+
 	var playPause = Button();
+	var playSnap = Button();
 	var nudgeForward = Button().string_("nudge ⏩");
 	var nudgeBackward = Button().string_("⏪ nudge");
 	var reverse = Button();
+	var reverseSnap = Button();
 
 	var pitchReset = Button().string_("0").maxWidth_(30);
 	var pitchSlider = Slider().orientation_(\horizontal), init_slider_val;
@@ -148,6 +158,10 @@ y.set(\play, 1.0);
 
 	reverse.states = [["◀︎ reverse", Color.black, Color.white], ["reverse ▶️", Color.white, Color.grey]];
 
+	playSnap.states = [["🔒", Color.black, Color.white], ["🌀", Color.white, Color.new(0.9, 0.9, 0.9)]];
+	playSnap.minWidth_(25);
+	reverseSnap.states = [["🔒", Color.black, Color.white], ["🌀", Color.white, Color.new(0.9, 0.9, 0.9)]];
+	reverseSnap.minWidth_(25);
 	// Define properties of the layouts
 
 	w = Window.new("Turntable", Rect(Window.screenBounds.width / 4, Window.screenBounds.height / 4, 440.0, 190.0),
@@ -163,7 +177,13 @@ y.set(\play, 1.0);
 	pitchSliderMarkings.setStretch(1, 1);
 	pitchSliderMarkings.setStretch(3, 1);
 
-	tempoDisplay = View();
+	tempoDisplay = HLayout(
+		VLayout(StaticText().string_("Tempo").stringColor_(Color.white), tempoText)
+		/*,
+		VLayout()*/
+	);
+
+	tempoDisplay = View().layout_(tempoDisplay);
 	tempoDisplay.background = \gray;
 
 	nudgeLayout = HLayout(nudgeAmountKnob, VLayout(StaticText().string_("amount: "), nudgeAmountText)).setAlignment(1, \center);
@@ -172,11 +192,17 @@ y.set(\play, 1.0);
 	snapLayout = HLayout(snapKnob, VLayout(StaticText().string_("snap"), snapText)).setAlignment(1, \center);
 	snapText.font_(Font("Monaco"));
 
+	playLayout = HLayout(playSnap, playPause);
+	playLayout.setStretch(1, 1);
+
+	reverseLayout = HLayout(reverseSnap, reverse);
+	reverseLayout.setStretch(1, 1);
+
 	playBackLayout = GridLayout.rows(
 		[[tempoDisplay, columns: 3], amplitude],
-		[[pitchSliderMarkings, columns: 3], reverse],
+		[[pitchSliderMarkings, columns: 3], reverseLayout],
 		[[pitchSlider, columns: 3], snapLayout],
-		[nudgeBackward, nudgeLayout, nudgeForward, playPause]
+		[nudgeBackward, nudgeLayout, nudgeForward, playLayout]
 	);
 
 	eqLayout = VLayout(StaticText().string_("EQ").align_(\center), eqHigh, eqMid, eqLow);
@@ -193,15 +219,21 @@ y.set(\play, 1.0);
 		turntable_synth.set(\amp, v.value);
 	});
 
+	tempoText.string_(tempo.trunc(0.1) + "bpm");
 	pitchSlider.value_(0.5);
 	pitchSlider.action_({ arg v; var pitch;
-		pitchBendSpec.map(v.value).postln;
-		turntable_synth.set(\pitch, pitchBendSpec.map(v.value));
+		pitch = pitchBendSpec.map(v.value);
+		turntable_synth.set(\pitch, pitch);
+		if (tempo != 0.0,
+			{tempoText.string_(((1.0 + pitch) * tempo).trunc(0.1) + "bpm")},
+			{tempoText.string_("none")}
+		);
 	});
 
 	pitchReset.action_({
 		turntable_synth.set(\pitch, 0.0);
 		pitchSlider.value_(0.5);
+		tempoText.string_(tempo.trunc(0.1) + "bpm");
 	});
 
 	// TODO: unmap the value to set initial position.
@@ -266,8 +298,16 @@ y.set(\play, 1.0);
 		|v| turntable_synth.set(\reverse, v.value);
 	});
 
+	reverseSnap.action_({
+		|v| turntable_synth.set(\reverseSnap, v.value);
+	});
+
 	playPause.action_({
 		|v| turntable_synth.set(\play, v.value);
+	});
+
+	playSnap.action_({
+		|v| turntable_synth.set(\playSnap, v.value);
 	});
 
 	nudgeForward.mouseDownAction_({
@@ -300,12 +340,12 @@ y.set(\play, 1.0);
 
 (
 x = Synth(\turntable, [\buff, ~dauwd.bufnum]);
-~turntable_layout.value(x);
+~turntable_layout.value(x, 120);
 )
 
 (
 y = Synth(\turntable, [\buff, ~isola.bufnum]);
-~turntable_layout.value(y);
+~turntable_layout.value(y, 125);
 )
 
 (
